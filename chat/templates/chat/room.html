@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Créer une Room</title>
+</head>
+<body>
+    <h1>Créer une Room</h1>
+    <form method="post">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button type="submit">Créer</button>
+    </form>
+
+    {% if room %}
+        <p>Room créée avec succès ! Code : <strong>{{ room.code }}</strong></p>
+    {% endif %}
+    <a href="{% url 'join_room' %}">Rejoindre une salle existante</a>
+</body>
+</html>

@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Room Rejointe</title>
+</head>
+<body>
+    <h2>Room Rejointe</h2>
+    <p>Nom : {{ room.name }}</p>
+    <p>Code : <strong>{{ room.code }}</strong></p>
+
+    <!-- Tu peux tester WebSocket ici -->
+    <script>
+        const socket = new WebSocket("ws://127.0.0.1:8000/ws/signaling/{{ room.code }}/");
+
+        socket.onopen = () => {
+            console.log("WebSocket connecté !");
+        }
+
+        socket.onmessage = (event) => {
+            console.log("Message reçu :", event.data);
+        }
+
+        socket.onclose = () => {
+            console.log("WebSocket fermé");
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Rejoindre une Room</title>
+</head>
+<body>
+    <h2>Rejoindre une Room</h2>
+    <form method="post">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button type="submit">Rejoindre</button>
+    </form>
+</body>
+</html>

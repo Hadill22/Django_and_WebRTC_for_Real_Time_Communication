@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Chat Room {{ room.code}}</title>
+</head>
+<body>
+    <h2>Bienvenue dans la Room {{ room.code }}</h2>
+
+    <ul id="messages"></ul>
+
+    <input id="messageInput" placeholder="Tape ton message ici..." />
+    <button onclick="sendMessage()">Envoyer</button>
+
+    <script>
+        const socket = new WebSocket("ws://127.0.0.1:8000/ws/signaling/{{ room.code}}/");
+
+        socket.onopen = () => {
+            console.log("✅ WebSocket connecté à {{ room_id }}");
+        };
+
+        socket.onmessage = (event) => {
+            const messages = document.getElementById("messages");
+            const li = document.createElement("li");
+            li.textContent = event.data;
+            messages.appendChild(li);
+        };
+
+        socket.onclose = () => {
+            console.log("❌ WebSocket fermé");
+        };
+
+        function sendMessage() {
+            const input = document.getElementById("messageInput");
+            const message = input.value;
+            if (message.trim() !== "") {
+                socket.send(message);
+                input.value = "";
+            }
+        }
+    </script>
+</body>
+</html>
