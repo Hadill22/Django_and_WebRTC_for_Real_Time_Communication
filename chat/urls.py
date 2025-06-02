@@ -10,7 +10,7 @@ router.register(r'participants', ParticipantViewSet)
 router.register(r'sessionlogs', SessionLogViewSet)
 
 urlpatterns = [
-    path('', include(router.urls)),
+    path('api/', include(router.urls)),
     path('create-room/', views.create_room, name='create_room'),
     path('join/', join_room, name='join_room'),
     path('join/<str:room_id>/', views.chat_room, name='chat_room'),

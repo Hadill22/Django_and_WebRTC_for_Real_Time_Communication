@@ -1,28 +1,261 @@
+{% load static %}
 <!DOCTYPE html>
-<html>
+<html lang="fr">
 <head>
-    <title>Room Rejointe</title>
+  <meta charset="UTF-8" />
+  <title>Room Rejointe — WebRTC Chat</title>
+  <style>
+    /* Styles simples pour disposer les vidéos et les boutons */
+    #videos-container {
+      display: flex;
+      justify-content: space-around;
+      margin-top: 20px;
+    }
+    video {
+      width: 45%;
+      border: 2px solid #333;
+      border-radius: 4px;
+      background: #000;
+    }
+    #controls {
+      margin-top: 20px;
+      text-align: center;
+    }
+    button {
+      margin: 0 10px;
+      padding: 10px 20px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+  </style>
 </head>
 <body>
-    <h2>Room Rejointe</h2>
-    <p>Nom : {{ room.name }}</p>
-    <p>Code : <strong>{{ room.code }}</strong></p>
+  <h2>Room Rejointe</h2>
+  <p><strong>Nom :</strong> {{ room.name }}</p>
+  <p><strong>Code :</strong> <span style="font-weight: bold;">{{ room.code }}</span></p>
 
-    <!-- Tu peux tester WebSocket ici -->
-    <script>
-        const socket = new WebSocket("ws://127.0.0.1:8000/ws/signaling/{{ room.code }}/");
+  <!-- 1) Conteneur pour afficher la vidéo locale et distante -->
+  <div id="videos-container">
+    <div>
+      <h3>Ma vidéo (local)</h3>
+      <video id="localVideo" autoplay muted playsinline></video>
+    </div>
+    <div>
+      <h3>Vidéo distante</h3>
+      <video id="remoteVideo" autoplay playsinline></video>
+    </div>
+  </div>
+
+  <!-- 2) Boutons pour mute / unmute et partager l'écran -->
+  <div id="controls">
+    <button id="btnMute">Mute</button>
+    <button id="btnShareScreen">Partager l’écran</button>
+  </div>
+
+  <!-- 3) Logique WebRTC + signaling WebSocket -->
+  <script>
+    (function() {
+      // —— A) Paramètres initiaux —— 
+      const roomCode = "{{ room.code }}";  // Injecté côté Django
+      const wsScheme = window.location.protocol === "https:" ? "wss" : "ws";
+      // Si Daphne écoute sur un port différent (ex. 8001), ajuster ici : 
+      const wsPort = window.location.port; 
+      const wsPath = `${wsScheme}://${window.location.hostname}:${wsPort}/ws/signaling/${roomCode}/`;
+
+      // —— B) Références du DOM —— 
+      const localVideo = document.getElementById("localVideo");
+      const remoteVideo = document.getElementById("remoteVideo");
+      const btnMute = document.getElementById("btnMute");
+      const btnShareScreen = document.getElementById("btnShareScreen");
+
+      // —— C) Variables globales WebRTC / WebSocket —— 
+      let localStream = null;
+      let peerConnection = null;
+      let socket = null;
+      let isAudioMuted = false;
+
+      // STUN server par défaut (Google)
+      const iceServers = {
+        iceServers: [
+          { urls: "stun:stun.l.google.com:19302" }
+        ]
+      };
+
+      // —— D) Démarrer la caméra + micro —— 
+      async function startLocalStream() {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+          localVideo.srcObject = stream;
+          localStream = stream;
+        } catch (err) {
+          console.error("Erreur getUserMedia :", err);
+          alert("Impossible d’accéder à la caméra ou au micro.");
+        }
+      }
+
+      // —— E) Création du RTCPeerConnection —— 
+      function createPeerConnection() {
+        peerConnection = new RTCPeerConnection(iceServers);
+
+        // Ajouter toutes les pistes locales (audio + vidéo)
+        localStream.getTracks().forEach(track => {
+          peerConnection.addTrack(track, localStream);
+        });
+
+        // Lorsque l’on reçoit un flux distant, l’attacher à remoteVideo
+        peerConnection.ontrack = (event) => {
+          // event.streams est un tableau, on prend le premier élément
+          remoteVideo.srcObject = event.streams[0];
+        };
+
+        // Lorsque ICE candidate est trouvé, l’envoyer au pair via WebSocket
+        peerConnection.onicecandidate = (event) => {
+          if (event.candidate) {
+            sendSignalMessage({
+              type: "ice-candidate",
+              candidate: event.candidate
+            });
+          }
+        };
+      }
+
+      // —— F) Fonction pour envoyer un message via WebSocket —— 
+      function sendSignalMessage(msg) {
+        if (socket && socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify(msg));
+        }
+      }
+
+      // —— G) Connexion au WebSocket —— 
+      function connectWebSocket() {
+        socket = new WebSocket(wsPath);
 
         socket.onopen = () => {
-            console.log("WebSocket connecté !");
-        }
+          console.log("WebSocket connecté à " + wsPath);
+          // Informer le serveur qu’on a rejoint la room
+          sendSignalMessage({ type: "join-room", room: roomCode });
+        };
 
-        socket.onmessage = (event) => {
-            console.log("Message reçu :", event.data);
-        }
+        socket.onmessage = async (event) => {
+          const data = JSON.parse(event.data);
+          console.log("Reçu du WS :", data);
+
+          switch (data.type) {
+            case "ready":
+              // On est probablement le second à rejoindre => on crée l’offre
+              await makeOffer();
+              break;
+
+            case "offer":
+              await handleOffer(data);
+              break;
+
+            case "answer":
+              await handleAnswer(data);
+              break;
+
+            case "ice-candidate":
+              await handleNewICECandidate(data);
+              break;
+
+            default:
+              console.warn("Type WS inconnu :", data.type);
+          }
+        };
 
         socket.onclose = () => {
-            console.log("WebSocket fermé");
+          console.log("WebSocket fermé");
+        };
+
+        socket.onerror = (err) => {
+          console.error("WebSocket erreur :", err);
+        };
+      }
+
+      // —— H) Créer et envoyer une offer SDP —— 
+      async function makeOffer() {
+        console.log("Création de l'offre SDP");
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        sendSignalMessage({
+          type: "offer",
+          sdp: peerConnection.localDescription
+        });
+      }
+
+      // —— I) Traiter l’offer reçue et envoyer un answer —— 
+      async function handleOffer(data) {
+        console.log("Offer reçue :", data.sdp);
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(data.sdp));
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
+        sendSignalMessage({
+          type: "answer",
+          sdp: peerConnection.localDescription
+        });
+      }
+
+      // —— J) Traiter l’answer reçue —— 
+      async function handleAnswer(data) {
+        console.log("Answer reçue :", data.sdp);
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(data.sdp));
+      }
+
+      // —— K) Traiter un nouvel ICE Candidate —— 
+      async function handleNewICECandidate(data) {
+        console.log("ICE candidate reçue :", data.candidate);
+        try {
+          await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
+        } catch (err) {
+          console.warn("Erreur ajout ICE candidate :", err);
         }
-    </script>
+      }
+
+      // —— L) Bouton Mute / Unmute —— 
+      btnMute.addEventListener("click", () => {
+        if (!localStream) return;
+        isAudioMuted = !isAudioMuted;
+        localStream.getAudioTracks().forEach(track => {
+          track.enabled = !isAudioMuted;
+        });
+        btnMute.textContent = isAudioMuted ? "Unmute" : "Mute";
+      });
+
+      // —— M) Bouton Partager l’écran —— 
+      btnShareScreen.addEventListener("click", async () => {
+        if (!peerConnection) return;
+        try {
+          const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+          const screenTrack = screenStream.getVideoTracks()[0];
+          // Remplacer la piste vidéo actuelle par celle de l’écran
+          const sender = peerConnection.getSenders().find(s => s.track && s.track.kind === "video");
+          if (sender) {
+            sender.replaceTrack(screenTrack);
+            // Quand l’utilisateur stoppe le partage, on remet la caméra
+            screenTrack.onended = () => {
+              const camTrack = localStream.getVideoTracks()[0];
+              peerConnection.getSenders().find(s => s.track && s.track.kind === "video")
+                .replaceTrack(camTrack);
+            };
+          }
+        } catch (err) {
+          console.error("Erreur partage d’écran :", err);
+        }
+      });
+
+      // —— N) Initialisation au chargement de la page —— 
+      async function init() {
+        // 1) Démarrer la caméra + micro
+        await startLocalStream();
+        // 2) Créer le RTCPeerConnection et ajouter les pistes locales
+        createPeerConnection();
+        // 3) Ouvrir le WebSocket pour le signaling
+        connectWebSocket();
+      }
+
+      // Dès que le DOM est prêt, on lance init()
+      document.addEventListener("DOMContentLoaded", init);
+    })();
+  </script>
 </body>
 </html>

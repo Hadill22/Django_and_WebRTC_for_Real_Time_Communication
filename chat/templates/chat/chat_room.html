@@ -15,7 +15,7 @@
         const socket = new WebSocket("ws://127.0.0.1:8000/ws/signaling/{{ room.code}}/");
 
         socket.onopen = () => {
-            console.log("✅ WebSocket connecté à {{ room_id }}");
+            console.log("✅ WebSocket connecté à {{ room_code }}");
         };
 
         socket.onmessage = (event) => {
