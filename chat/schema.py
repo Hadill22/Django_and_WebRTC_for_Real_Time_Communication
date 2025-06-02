@@ -1,26 +1,14 @@
+import django
+django.setup()  
 import graphene
 from graphene_django.types import DjangoObjectType
+
 from .models import Room, Participant, ChatParticipantRoleChoices
 from .graphql_subscriptions import RoomCreatedSubscription
 
 class Subscription(graphene.ObjectType):
     room_created = RoomCreatedSubscription.Field()
-
-schema = graphene.Schema(query=Query, mutation=Mutation, subscription=Subscription)
-class Query(graphene.ObjectType):
-    # Ajoute ici tes champs GraphQL
-    pass
-
-class Mutation(graphene.ObjectType):
-    # Ajoute ici tes mutations
-    pass
-
-class Subscription(graphene.ObjectType):
-    # Ajoute ici tes subscriptions
-    pass
-
-
-
+    
 class ChatParticipantRoleEnum(graphene.Enum):
     HOST  = ChatParticipantRoleChoices.HOST
     GUEST = ChatParticipantRoleChoices.GUEST
