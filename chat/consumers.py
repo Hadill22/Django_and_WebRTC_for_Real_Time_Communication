@@ -4,20 +4,21 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 
 class SignalingConsumer(AsyncWebsocketConsumer):
     async def connect(self):
-        # Si vous utilisez JWT (ou session), vérifiez l’authentification ici :
+        self.room_code = self.scope['url_route']['kwargs']['room_code']
+        self.group_name = f"signaling_{self.room_code}"
+
         user = self.scope["user"]
         if not user.is_authenticated:
+            self.group_name = None  # ✅ pour éviter l’erreur à disconnect
             await self.close()
             return
-
-        self.room_code  = self.scope['url_route']['kwargs']['room_code']
-        self.group_name = f"signaling_{self.room_code}"
 
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
 
     async def disconnect(self, close_code):
-        await self.channel_layer.group_discard(self.group_name, self.channel_name)
+        if self.group_name:  # ✅ éviter AttributeError si la connexion a été rejetée
+            await self.channel_layer.group_discard(self.group_name, self.channel_name)
 
     async def receive(self, text_data):
         """
